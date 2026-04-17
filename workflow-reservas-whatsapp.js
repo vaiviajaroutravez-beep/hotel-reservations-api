@@ -269,4 +269,4 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 process.on('uncaughtException', (error) => {
   console.error('❌ Exceção não capturada:', error);
-});[cole todo o código aqui]
+});
