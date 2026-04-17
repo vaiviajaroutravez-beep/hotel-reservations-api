@@ -54,16 +54,17 @@ app.post('/zapi-reply', async (req, res) => {
 
     if (result.success) {
       // Enviar resposta via WhatsApp
+      const obsMessage = result.data.observation ? `\nObservação: ${result.data.observation}` : '';
       await sendWhatsAppMessage(
         senderPhone,
-        `✅ Reserva confirmada!\n\nHóspede: ${result.data.guestName}\nData Entrada: ${result.data.checkInDate}\nData Saída: ${result.data.checkOutDate}\n\nCódigo da reserva: ${result.data.reservationId}`
+        `✅ Reserva confirmada!\n\nHóspede: ${result.data.guestName}\nData Entrada: ${result.data.checkInDate}\nData Saída: ${result.data.checkOutDate}\nAdultos: ${result.data.adults}\nCrianças: ${result.data.children}${obsMessage}\n\nCódigo da reserva: ${result.data.reservationId}`
       );
       console.log('✅ Resposta enviada via WhatsApp');
     } else {
       // Enviar mensagem de erro
       await sendWhatsAppMessage(
         senderPhone,
-        `❌ Erro ao processar reserva:\n${result.error}\n\nFormato correto: reserva: Nome Completo, Data Entrada (DD/MM/YYYY), Data Saída (DD/MM/YYYY), Tipo Quarto, Número de Hóspedes, Email, Telefone`
+        `❌ Erro ao processar reserva:\n${result.error}\n\nFormato correto: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação (opcional)`
       );
       console.log('❌ Erro enviado via WhatsApp');
     }
@@ -165,9 +166,11 @@ async function createReservation(reservationData, guestId, jwtToken) {
         guestId: guestId,
         checkIn: reservationData.checkInDate,
         checkOut: reservationData.checkOutDate,
-        roomType: reservationData.roomType,
-        numberOfGuests: parseInt(reservationData.numberOfGuests),
-        specialRequests: reservationData.specialRequests || '',
+        numberOfAdults: reservationData.adults,
+        numberOfChildren: reservationData.children,
+        totalGuests: reservationData.adults + reservationData.children,
+        cpf: reservationData.cpf,
+        specialRequests: reservationData.observation || '',
         source: 'whatsapp-zapi'
       },
       {
@@ -217,18 +220,18 @@ async function sendWhatsAppMessage(phone, message) {
 // ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
 function parseReservationMessage(messageText) {
-  // Padrão: "reserva: Nome Completo, Data Entrada, Data Saída, Tipo Quarto, Num Hóspedes, Email, Telefone"
-  const regex = /reserva:\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+)/i;
+  // Padrão: "reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação"
+  const regex = /reserva:\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?)(?:,\s*(.+))?$/i;
   const match = messageText.match(regex);
 
   if (!match) {
     return {
       success: false,
-      error: 'Formato inválido. Use: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, Tipo Quarto, Num Hóspedes, Email, Telefone'
+      error: 'Formato inválido. Use: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação (opcional)'
     };
   }
 
-  const [, name, checkIn, checkOut, roomType, guests, email, phone] = match;
+  const [, name, checkIn, checkOut, cpf, adults, children, email, phone, observation] = match;
 
   // Validar datas
   const checkInDate = parseDate(checkIn.trim());
@@ -248,16 +251,45 @@ function parseReservationMessage(messageText) {
     };
   }
 
+  // Validar CPF (simples)
+  const cpfClean = cpf.trim().replace(/\D/g, '');
+  if (cpfClean.length !== 11) {
+    return {
+      success: false,
+      error: 'CPF inválido. Deve ter 11 dígitos'
+    };
+  }
+
+  // Validar número de hóspedes
+  const numAdults = parseInt(adults.trim());
+  const numChildren = parseInt(children.trim());
+
+  if (isNaN(numAdults) || numAdults < 1) {
+    return {
+      success: false,
+      error: 'Quantidade de adultos deve ser um número válido (mínimo 1)'
+    };
+  }
+
+  if (isNaN(numChildren) || numChildren < 0) {
+    return {
+      success: false,
+      error: 'Quantidade de crianças deve ser um número válido (0 ou mais)'
+    };
+  }
+
   return {
     success: true,
     data: {
       guestName: name.trim(),
       checkInDate: checkInDate,
       checkOutDate: checkOutDate,
-      roomType: roomType.trim(),
-      numberOfGuests: guests.trim(),
+      cpf: cpfClean,
+      adults: numAdults,
+      children: numChildren,
       email: email.trim(),
-      phone: phone.trim()
+      phone: phone.trim(),
+      observation: observation ? observation.trim() : ''
     }
   };
 }
@@ -323,7 +355,10 @@ async function processReservation(messageText, senderPhone) {
         guestName: reservationData.guestName,
         checkInDate: reservationData.checkInDate,
         checkOutDate: reservationData.checkOutDate,
-        roomType: reservationData.roomType
+        adults: reservationData.adults,
+        children: reservationData.children,
+        cpf: reservationData.cpf,
+        observation: reservationData.observation
       }
     };
 
