@@ -121,7 +121,7 @@ async function createGuest(guestData, jwtToken) {
   try {
     console.log('👤 Criando hóspede no Hospedin...');
     const response = await axios.post(
-      `${HOSPEDIN_API_URL}/guests`,
+      `${HOSPEDIN_API_URL}/recanto-das-tiribas/guests`,
       {
         name: guestData.name,
         email: guestData.email,
@@ -148,7 +148,7 @@ async function createGuest(guestData, jwtToken) {
 async function findGuestByEmail(email, jwtToken) {
   try {
     const response = await axios.get(
-      `${HOSPEDIN_API_URL}/guests?email=${encodeURIComponent(email)}`,
+      `${HOSPEDIN_API_URL}/recanto-das-tiribas/guests?email=${encodeURIComponent(email)}`,
       { headers: { Authorization: `Bearer ${jwtToken}` }, timeout: 10000 }
     );
 
@@ -168,7 +168,7 @@ async function createReservation(reservationData, guestId, jwtToken) {
   try {
     console.log('🏨 Criando reserva no Hospedin...');
     const response = await axios.post(
-      `${HOSPEDIN_API_URL}/reservations`,
+      `${HOSPEDIN_API_URL}/recanto-das-tiribas/reservations`,
       {
         guestId: guestId,
         checkIn: reservationData.checkInDate,
