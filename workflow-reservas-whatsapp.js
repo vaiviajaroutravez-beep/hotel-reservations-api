@@ -375,9 +375,21 @@ async function forwardToLegacyBot(message) {
 
 // ==================== SERVER INITIALIZATION ====================
 
+// Verificar variáveis de ambiente na startup
+console.log('\n🔍 Verificando variáveis de ambiente na startup...');
+const requiredVars = ['HOSPEDIN_EMAIL', 'HOSPEDIN_PASSWORD', 'ZAPI_INSTANCE_ID', 'ZAPI_CLIENT_TOKEN'];
+const missingVars = requiredVars.filter(v => !process.env[v]);
+
+if (missingVars.length > 0) {
+  console.error(`❌ Variáveis faltando: ${missingVars.join(', ')}`);
+  process.exit(1);
+} else {
+  console.log('✅ Todas as variáveis de ambiente estão configuradas');
+}
+
 app.listen(PORT, () => {
   console.log(`\n🚀 Servidor de Reservas WhatsApp rodando na porta ${PORT}`);
-  console.log(`📌 Webhook URL: http://localhost:${PORT}/zapi-reply`);
+  console.log(`📌 Webhook URL: /zapi-reply`);
   console.log(`🏨 Hospedin API: ${HOSPEDIN_API_URL}`);
   console.log(`💬 Z-API Instance: ${ZAPI_INSTANCE_ID}`);
   console.log(`📞 Números autorizados: ${AUTHORIZED_NUMBERS.join(', ')}`);
