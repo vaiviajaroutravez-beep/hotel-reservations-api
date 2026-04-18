@@ -46,6 +46,21 @@ app.post('/zapi-reply', async (req, res) => {
       return res.json({ success: false, error: 'No message text' });
     }
 
+    // Extrai ID do grupo (se for mensagem de grupo)
+    let groupId = null;
+    if (message.messageObject?.groupId) {
+      groupId = message.messageObject.groupId;
+    } else if (message.messageObject?.chat?.id) {
+      groupId = message.messageObject.chat.id;
+    } else if (message.groupId) {
+      groupId = message.groupId;
+    } else if (message.chat?.id) {
+      groupId = message.chat.id;
+    }
+
+    console.log(`📱 Tipo: ${groupId ? 'GRUPO' : 'PRIVADO'}`);
+    if (groupId) console.log(`   Group ID: ${groupId}`);
+
     const senderPhone = message.messageObject?.sender?.id || message.messageObject?.from || message.from || message.messageObject?.participantPhone || message.participantPhone;
 
     if (!AUTHORIZED_NUMBERS.includes(senderPhone)) {
@@ -64,16 +79,19 @@ app.post('/zapi-reply', async (req, res) => {
 
       if (result.success) {
         const obsMessage = result.data.observation ? `\nObservação: ${result.data.observation}` : '';
-        await sendWhatsAppMessage(
-          senderPhone,
-          `✅ Reserva confirmada!\n\nHóspede: ${result.data.guestName}\nData Entrada: ${result.data.checkInDate}\nData Saída: ${result.data.checkOutDate}\nAdultos: ${result.data.adults}\nCrianças: ${result.data.children}${obsMessage}\n\nCódigo da reserva: ${result.data.reservationId}`
-        );
+        const confirmationMessage = `✅ Reserva confirmada!\n\nHóspede: ${result.data.guestName}\nData Entrada: ${result.data.checkInDate}\nData Saída: ${result.data.checkOutDate}\nAdultos: ${result.data.adults}\nCrianças: ${result.data.children}${obsMessage}\n\nCódigo da reserva: ${result.data.reservationId}`;
+
+        // Envia resposta para o grupo (se for grupo) ou para o número (se for privado)
+        const targetId = groupId || senderPhone;
+        console.log(`📤 Enviando confirmação para: ${groupId ? `GRUPO (${groupId})` : `número (${senderPhone})`}`);
+
+        await sendWhatsAppMessage(targetId, confirmationMessage, groupId ? 'group' : 'private');
         console.log('✅ Resposta enviada via WhatsApp');
       } else {
-        await sendWhatsAppMessage(
-          senderPhone,
-          `❌ Erro ao processar reserva:\n${result.error}\n\nFormato correto: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação (opcional)`
-        );
+        const errorMessage = `❌ Erro ao processar reserva:\n${result.error}\n\nFormato correto: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação (opcional)`;
+
+        const targetId = groupId || senderPhone;
+        await sendWhatsAppMessage(targetId, errorMessage, groupId ? 'group' : 'private');
         console.log('❌ Erro enviado via WhatsApp');
       }
 
@@ -192,20 +210,30 @@ async function createReservation(reservationData, guestId, jwtToken) {
 
 // ==================== Z-API WHATSAPP MESSAGING ====================
 
-async function sendWhatsAppMessage(phone, message) {
+async function sendWhatsAppMessage(targetId, message, type = 'private') {
   try {
-    console.log(`📤 Enviando mensagem WhatsApp para ${phone}...`);
+    let payload;
+
+    if (type === 'group') {
+      // Para grupos, usar groupId
+      console.log(`📤 Enviando mensagem para GRUPO (${targetId})...`);
+      payload = { groupId: targetId, message: message };
+    } else {
+      // Para números privados
+      console.log(`📤 Enviando mensagem para número (${targetId})...`);
+      payload = { phone: targetId, message: message };
+    }
 
     const response = await axios.post(
       `${ZAPI_API_URL}/${ZAPI_INSTANCE_ID}/send-text`,
-      { phone: phone, message: message },
+      payload,
       { headers: { 'Client-Token': ZAPI_CLIENT_TOKEN, 'Content-Type': 'application/json' }, timeout: 10000 }
     );
 
     console.log('✅ Mensagem enviada com sucesso');
     return response.data;
   } catch (error) {
-    console.error('❌ Erro ao enviar mensagem WhatsApp:', error.message);
+    console.error('❌ Erro ao enviar mensagem WhatsApp:', error.response?.data || error.message);
     return { success: false, error: error.message };
   }
 }
