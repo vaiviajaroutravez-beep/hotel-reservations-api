@@ -6,44 +6,47 @@ const axios = require('axios');
 const express = require('express');
 
 // ==================== CONFIGURAÇÕES ====================
-// Hospedin API - Using email/password authentication
 const HOSPEDIN_API_URL = 'https://pms-api.hospedin.com/api/v2';
 const HOSPEDIN_EMAIL = process.env.HOSPEDIN_EMAIL;
 const HOSPEDIN_PASSWORD = process.env.HOSPEDIN_PASSWORD;
 
-// Z-API Configuration
 const ZAPI_API_URL = process.env.ZAPI_API_URL || 'https://api.z-api.io/instances';
 const ZAPI_INSTANCE_ID = process.env.ZAPI_INSTANCE_ID;
 const ZAPI_CLIENT_TOKEN = process.env.ZAPI_CLIENT_TOKEN;
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
 
-// Authorized phone numbers (whitelist)
 const AUTHORIZED_NUMBERS = (process.env.AUTHORIZED_PHONE_NUMBERS || '5513996626898').split(',').map(n => n.trim());
-
 const PORT = process.env.PORT || 3000;
 
 // ==================== EXPRESS & WEBHOOKS ====================
 const app = express();
-
 app.use(express.json());
 
-// Z-API Webhook for receiving messages
 app.post('/zapi-reply', async (req, res) => {
   try {
     console.log('📨 Webhook recebido:', JSON.stringify(req.body, null, 2));
 
     const message = req.body;
 
-    // Basic validations
-    if (!message.messageObject || !message.messageObject.text) {
+    // Extrai texto do payload - suporta múltiplos formatos do Z-API
+    let messageText = '';
+    if (message.messageObject?.text?.message) {
+      messageText = message.messageObject.text.message;
+    } else if (typeof message.messageObject?.text === 'string') {
+      messageText = message.messageObject.text;
+    } else if (message.text?.message) {
+      messageText = message.text.message;
+    } else if (typeof message.text === 'string') {
+      messageText = message.text;
+    }
+
+    if (!messageText) {
       console.log('❌ Mensagem sem texto ou formato inválido');
       return res.json({ success: false, error: 'No message text' });
     }
 
-    const senderPhone = message.messageObject.sender?.id || message.messageObject.from;
-    const messageText = message.messageObject.text;
+    const senderPhone = message.messageObject?.sender?.id || message.messageObject?.from || message.from;
 
-    // Validate phone number
     if (!AUTHORIZED_NUMBERS.includes(senderPhone)) {
       console.log(`⚠️ Ignorando msg de número desconhecido: ${senderPhone}`);
       return res.json({ success: false, error: 'Unauthorized number' });
@@ -52,15 +55,13 @@ app.post('/zapi-reply', async (req, res) => {
     console.log(`✅ Mensagem de número autorizado: ${senderPhone}`);
     console.log(`📝 Texto: ${messageText}`);
 
-    // Check if this is a reservation message
+    // Detecta se é mensagem de reserva
     if (messageText.toLowerCase().trim().startsWith('reserva:')) {
       console.log('🎫 Detectada mensagem de RESERVA');
 
-      // Process the reservation
       const result = await processReservation(messageText, senderPhone);
 
       if (result.success) {
-        // Send success response via WhatsApp
         const obsMessage = result.data.observation ? `\nObservação: ${result.data.observation}` : '';
         await sendWhatsAppMessage(
           senderPhone,
@@ -68,7 +69,6 @@ app.post('/zapi-reply', async (req, res) => {
         );
         console.log('✅ Resposta enviada via WhatsApp');
       } else {
-        // Send error message
         await sendWhatsAppMessage(
           senderPhone,
           `❌ Erro ao processar reserva:\n${result.error}\n\nFormato correto: reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação (opcional)`
@@ -79,7 +79,7 @@ app.post('/zapi-reply', async (req, res) => {
       return res.json({ success: true, data: result.data });
 
     } else {
-      // Not a reservation message - forward to the legacy bot
+      // Repassa para bot antigo
       console.log('🤖 Mensagem não é reserva, repassando para bot antigo...');
       await forwardToLegacyBot(message);
       return res.json({ success: true, forwarded: true });
@@ -91,7 +91,6 @@ app.post('/zapi-reply', async (req, res) => {
   }
 });
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -103,10 +102,7 @@ async function getHostedinJWT() {
     console.log('🔐 Obtendo JWT do Hospedin...');
     const response = await axios.post(
       `${HOSPEDIN_API_URL}/authentication/sessions`,
-      {
-        email: HOSPEDIN_EMAIL,
-        password: HOSPEDIN_PASSWORD
-      },
+      { email: HOSPEDIN_EMAIL, password: HOSPEDIN_PASSWORD },
       { timeout: 10000 }
     );
 
@@ -134,10 +130,7 @@ async function createGuest(guestData, jwtToken) {
         documentNumber: guestData.documentNumber || '',
         birthDate: guestData.birthDate || ''
       },
-      {
-        headers: { Authorization: `Bearer ${jwtToken}` },
-        timeout: 10000
-      }
+      { headers: { Authorization: `Bearer ${jwtToken}` }, timeout: 10000 }
     );
 
     console.log('✅ Hóspede criado:', response.data.id);
@@ -156,10 +149,7 @@ async function findGuestByEmail(email, jwtToken) {
   try {
     const response = await axios.get(
       `${HOSPEDIN_API_URL}/guests?email=${encodeURIComponent(email)}`,
-      {
-        headers: { Authorization: `Bearer ${jwtToken}` },
-        timeout: 10000
-      }
+      { headers: { Authorization: `Bearer ${jwtToken}` }, timeout: 10000 }
     );
 
     if (response.data && response.data.length > 0) {
@@ -190,10 +180,7 @@ async function createReservation(reservationData, guestId, jwtToken) {
         specialRequests: reservationData.observation || '',
         source: 'whatsapp-zapi'
       },
-      {
-        headers: { Authorization: `Bearer ${jwtToken}` },
-        timeout: 10000
-      }
+      { headers: { Authorization: `Bearer ${jwtToken}` }, timeout: 10000 }
     );
 
     console.log('✅ Reserva criada:', response.data.id);
@@ -212,17 +199,8 @@ async function sendWhatsAppMessage(phone, message) {
 
     const response = await axios.post(
       `${ZAPI_API_URL}/${ZAPI_INSTANCE_ID}/send-text`,
-      {
-        phone: phone,
-        message: message
-      },
-      {
-        headers: {
-          'Client-Token': ZAPI_CLIENT_TOKEN,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
+      { phone: phone, message: message },
+      { headers: { 'Client-Token': ZAPI_CLIENT_TOKEN, 'Content-Type': 'application/json' }, timeout: 10000 }
     );
 
     console.log('✅ Mensagem enviada com sucesso');
@@ -236,7 +214,6 @@ async function sendWhatsAppMessage(phone, message) {
 // ==================== MESSAGE PARSING ====================
 
 function parseReservationMessage(messageText) {
-  // Format: "reserva: Nome, DD/MM/YYYY, DD/MM/YYYY, CPF, Adultos, Crianças, Email, Telefone, Observação"
   const regex = /reserva:\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?),\s*(.+?)(?:,\s*(.+))?$/i;
   const match = messageText.match(regex);
 
@@ -249,49 +226,31 @@ function parseReservationMessage(messageText) {
 
   const [, name, checkIn, checkOut, cpf, adults, children, email, phone, observation] = match;
 
-  // Validate dates
   const checkInDate = parseDate(checkIn.trim());
   const checkOutDate = parseDate(checkOut.trim());
 
   if (!checkInDate || !checkOutDate) {
-    return {
-      success: false,
-      error: 'Datas inválidas. Use o formato DD/MM/YYYY'
-    };
+    return { success: false, error: 'Datas inválidas. Use o formato DD/MM/YYYY' };
   }
 
   if (checkOutDate <= checkInDate) {
-    return {
-      success: false,
-      error: 'Data de saída deve ser posterior à data de entrada'
-    };
+    return { success: false, error: 'Data de saída deve ser posterior à data de entrada' };
   }
 
-  // Validate CPF
   const cpfClean = cpf.trim().replace(/\D/g, '');
   if (cpfClean.length !== 11) {
-    return {
-      success: false,
-      error: 'CPF inválido. Deve ter 11 dígitos'
-    };
+    return { success: false, error: 'CPF inválido. Deve ter 11 dígitos' };
   }
 
-  // Validate guest counts
   const numAdults = parseInt(adults.trim());
   const numChildren = parseInt(children.trim());
 
   if (isNaN(numAdults) || numAdults < 1) {
-    return {
-      success: false,
-      error: 'Quantidade de adultos deve ser um número válido (mínimo 1)'
-    };
+    return { success: false, error: 'Quantidade de adultos deve ser um número válido (mínimo 1)' };
   }
 
   if (isNaN(numChildren) || numChildren < 0) {
-    return {
-      success: false,
-      error: 'Quantidade de crianças deve ser um número válido (0 ou mais)'
-    };
+    return { success: false, error: 'Quantidade de crianças deve ser um número válido (0 ou mais)' };
   }
 
   return {
@@ -323,7 +282,6 @@ function parseDate(dateStr) {
     return null;
   }
 
-  // Return in ISO format (YYYY-MM-DD)
   return date.toISOString().split('T')[0];
 }
 
@@ -331,18 +289,14 @@ function parseDate(dateStr) {
 
 async function processReservation(messageText, senderPhone) {
   try {
-    // Parse message
     const parsedMsg = parseReservationMessage(messageText);
     if (!parsedMsg.success) {
       return parsedMsg;
     }
 
     const reservationData = parsedMsg.data;
-
-    // Get JWT token
     const jwtToken = await getHostedinJWT();
 
-    // Create or find guest
     const guestId = await createGuest(
       {
         name: reservationData.guestName,
@@ -353,18 +307,10 @@ async function processReservation(messageText, senderPhone) {
     );
 
     if (!guestId) {
-      return {
-        success: false,
-        error: 'Não foi possível criar ou localizar o hóspede'
-      };
+      return { success: false, error: 'Não foi possível criar ou localizar o hóspede' };
     }
 
-    // Create reservation
-    const reservation = await createReservation(
-      reservationData,
-      guestId,
-      jwtToken
-    );
+    const reservation = await createReservation(reservationData, guestId, jwtToken);
 
     return {
       success: true,
@@ -382,10 +328,7 @@ async function processReservation(messageText, senderPhone) {
 
   } catch (error) {
     console.error('❌ Erro ao processar reserva:', error.message);
-    return {
-      success: false,
-      error: error.message
-    };
+    return { success: false, error: error.message };
   }
 }
 
@@ -400,7 +343,6 @@ async function forwardToLegacyBot(message) {
     console.log('✅ Mensagem repassada para bot antigo com sucesso');
   } catch (error) {
     console.error('⚠️ Erro ao repassar para bot antigo:', error.message);
-    // Log but don't throw - we already responded to Z-API
   }
 }
 
@@ -415,7 +357,6 @@ app.listen(PORT, () => {
   console.log('\n✅ Sistema pronto para receber reservas via WhatsApp\n');
 });
 
-// Unhandled rejection handler
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejection não tratada:', reason);
 });
