@@ -15,7 +15,7 @@ const ZAPI_INSTANCE_ID = process.env.ZAPI_INSTANCE_ID;
 const ZAPI_CLIENT_TOKEN = process.env.ZAPI_CLIENT_TOKEN;
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
 
-const AUTHORIZED_NUMBERS = (process.env.AUTHORIZED_PHONE_NUMBERS || '5513996626898').split(',').map(n => n.trim());
+const AUTHORIZED_NUMBERS = (process.env.AUTHORIZED_PHONE_NUMBERS || '5513996626898,5513988100000').split(',').map(n => n.trim());
 const PORT = process.env.PORT || 3000;
 
 // ==================== EXPRESS & WEBHOOKS ====================
