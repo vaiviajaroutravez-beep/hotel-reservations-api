@@ -45,7 +45,7 @@ app.post('/zapi-reply', async (req, res) => {
       return res.json({ success: false, error: 'No message text' });
     }
 
-    const senderPhone = message.messageObject?.sender?.id || message.messageObject?.from || message.from;
+    const senderPhone = message.messageObject?.sender?.id || message.messageObject?.from || message.from || message.messageObject?.participantPhone || message.participantPhone;
 
     if (!AUTHORIZED_NUMBERS.includes(senderPhone)) {
       console.log(`⚠️ Ignorando msg de número desconhecido: ${senderPhone}`);
