@@ -9,6 +9,7 @@ const express = require('express');
 const HOSPEDIN_API_URL = 'https://pms-api.hospedin.com/api/v2';
 const HOSPEDIN_EMAIL = process.env.HOSPEDIN_EMAIL;
 const HOSPEDIN_PASSWORD = process.env.HOSPEDIN_PASSWORD;
+const HOSPEDIN_DEFAULT_PLACE_ID = process.env.HOSPEDIN_DEFAULT_PLACE_ID || 879;
 
 const ZAPI_API_URL = process.env.ZAPI_API_URL || 'https://api.z-api.io/instances';
 const ZAPI_INSTANCE_ID = process.env.ZAPI_INSTANCE_ID;
@@ -170,15 +171,13 @@ async function createReservation(reservationData, guestId, jwtToken) {
     const response = await axios.post(
       `${HOSPEDIN_API_URL}/recanto-das-tiribas/reservations`,
       {
-        guestId: guestId,
-        checkIn: reservationData.checkInDate,
-        checkOut: reservationData.checkOutDate,
-        numberOfAdults: reservationData.adults,
-        numberOfChildren: reservationData.children,
-        totalGuests: reservationData.adults + reservationData.children,
-        cpf: reservationData.cpf,
-        specialRequests: reservationData.observation || '',
-        source: 'whatsapp-zapi'
+        guest_id: guestId,
+        check_in: reservationData.checkInDate,
+        check_out: reservationData.checkOutDate,
+        adults: reservationData.adults,
+        children: reservationData.children,
+        place_id: HOSPEDIN_DEFAULT_PLACE_ID,
+        note: reservationData.observation || ''
       },
       { headers: { Authorization: `Bearer ${jwtToken}` }, timeout: 10000 }
     );
@@ -186,8 +185,8 @@ async function createReservation(reservationData, guestId, jwtToken) {
     console.log('✅ Reserva criada:', response.data.id);
     return response.data;
   } catch (error) {
-    console.error('❌ Erro ao criar reserva:', error.message);
-    throw new Error(`Falha ao criar reserva: ${error.message}`);
+    console.error('❌ Erro ao criar reserva:', error.response?.data || error.message);
+    throw new Error(`Falha ao criar reserva: ${error.response?.data?.message || error.message}`);
   }
 }
 
